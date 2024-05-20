@@ -1,0 +1,72 @@
+import multiprocessing
+import numpy as np
+import pandas as pd
+import chess
+from tensorflow.keras.models import load_model
+from sklearn.preprocessing import LabelEncoder
+import tensorflow as tf
+
+# Define path locations for your models and label encoders
+MODEL_PIECE_PATH = 'path_to_piece_model.h5'
+MODEL_MOVE_PATH = 'path_to_move_model.h5'
+LABEL_ENCODER_PIECES_PATH = 'path_to_piece_label_encoder.pkl'
+LABEL_ENCODER_MOVES_PATH = 'path_to_move_label_encoder.pkl'
+DATA_PATH = 'path_to_your_data.csv'
+
+def worker_init():
+    global model_piece, model_move, label_encoder_pieces, label_encoder_moves
+    # Load models and label encoders
+    model_piece = load_model(MODEL_PIECE_PATH)
+    model_move = load_model(MODEL_MOVE_PATH)
+    label_encoder_pieces = load_label_encoder(LABEL_ENCODER_PIECES_PATH)
+    label_encoder_moves = load_label_encoder(LABEL_ENCODER_MOVES_PATH)
+
+def predict_piece_and_move(row):
+    # Parse the board state
+    fen = row['FEN_after_first_move']
+    board_matrix = parse_fen(fen).reshape(1, 8, 8, 1)
+
+    # Predict the piece
+    piece_pred = model_piece.predict(board_matrix)
+    predicted_piece_idx = np.argmax(piece_pred)
+    predicted_piece = label_encoder_pieces.inverse_transform([predicted_piece_idx])[0]
+
+    # Set up chess board
+    board = chess.Board(fen)
+    legal_moves = [move.uci() for move in board.legal_moves if board.piece_at(move.from_square) and board.piece_at(move.from_square).symbol() == predicted_piece]
+    move_matrix = np.array([parse_fen(fen) for _ in legal_moves]).reshape(-1, 8, 8, 1)
+
+    # Predict the move
+    move_pred = model_move.predict(move_matrix)
+    predicted_move_idx = np.argmax(move_pred)
+    predicted_move = label_encoder_moves.inverse_transform([predicted_move_idx])[0]
+
+    # Return comparison results
+    return (predicted_piece == row['piece_to_move'], predicted_move == row['target_move'])
+
+def load_label_encoder(path):
+    import pickle
+    with open(path, 'rb') as file:
+        return pickle.load(file)
+
+def main():
+    # Load the data
+    df = pd.read_csv(DATA_PATH)
+    
+    # Initialize multiprocessing
+    with multiprocessing.Pool(processes=multiprocessing.cpu_count(), initializer=worker_init) as pool:
+        results = pool.map(predict_piece_and_move, [row for _, row in df.iterrows()])
+    
+    # Calculate accuracies
+    correct_piece_predictions = sum(1 for piece_correct, _ in results if piece_correct)
+    correct_move_predictions = sum(1 for _, move_correct in results if move_correct)
+    total_predictions = len(results)
+
+    # Output results
+    piece_accuracy = correct_piece_predictions / total_predictions
+    move_accuracy = correct_move_predictions / total_predictions
+    print(f"Piece prediction accuracy: {piece_accuracy * 100:.2f}%")
+    print(f"Move prediction accuracy: {move_accuracy * 100:.2f}%")
+
+if __name__ == '__main__':
+    main()

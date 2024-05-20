@@ -1,0 +1,12 @@
+Moves: First move is from opponent. Solutions starts at the second move.
+
+I want to convert the UCI notation (of column Moves) to SAN notation for interpretability
+
+
+
+Embeddings are more compact than one-hot encodings, which can be important for large datasets. 
+
+
+
+FirstMovePrediction: Accuracy = 85.60%
+FirstPiecePrediction: Accuracy = 87.40%
